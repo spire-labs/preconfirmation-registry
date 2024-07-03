@@ -30,6 +30,12 @@ contract PreconfirmationRegistryTest is Test {
         assertEq(info.delegatedProposers.length, 0);
     }
 
+    function testRegisterZeroValue() public {
+        vm.prank(registrant);
+        vm.expectRevert("Insufficient registration amount");
+        registry.register{value: 0}();
+    }
+
     function testDelegate() public {
         vm.startPrank(registrant);
         registry.register{value: 2 ether}();
@@ -101,6 +107,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.withdraw(registrant);
 
         assertEq(registrant.balance - balanceBefore, 1 ether);
+        assertEq(registry.getRegistrantInfo(registrant).balance, 1 ether);
     }
 
     function testMultipleDelegations() public {
@@ -184,5 +191,111 @@ contract PreconfirmationRegistryTest is Test {
         vm.expectRevert("Insufficient balance");
         registry.initiateExit(2 ether);
         vm.stopPrank();
+    }
+
+    function testRedelegate() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+
+        address[] memory proposers1 = new address[](1);
+        proposers1[0] = proposer;
+        registry.delegate(proposers1);
+
+        address proposer2 = vm.addr(3);
+        address[] memory proposers2 = new address[](1);
+        proposers2[0] = proposer2;
+        registry.delegate(proposers2);
+        vm.stopPrank();
+
+        PreconfirmationRegistry.Registrant memory registrantInfo = registry
+            .getRegistrantInfo(registrant);
+        PreconfirmationRegistry.Proposer memory proposerInfo1 = registry
+            .getProposerInfo(proposer);
+        PreconfirmationRegistry.Proposer memory proposerInfo2 = registry
+            .getProposerInfo(proposer2);
+
+        assertEq(registrantInfo.delegatedProposers.length, 2);
+        assertEq(registrantInfo.delegatedProposers[0], proposer);
+        assertEq(registrantInfo.delegatedProposers[1], proposer2);
+        assertEq(proposerInfo1.delegatedBy.length, 1);
+        assertEq(proposerInfo2.delegatedBy.length, 1);
+        assertEq(proposerInfo2.delegatedBy[0], registrant);
+    }
+
+    function testUpdateStatusBelowMinimum() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        vm.roll(block.number + 32);
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.PRECONFER)
+        );
+
+        vm.prank(registrant);
+        registry.initiateExit(1.5 ether);
+        vm.stopPrank();
+
+        vm.roll(block.number + 32);
+
+        vm.prank(registrant);
+        registry.withdraw(registrant);
+
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
+    }
+
+    function testWithdrawTwice() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+        registry.initiateExit(1 ether);
+        vm.stopPrank();
+
+        vm.roll(block.number + 33);
+
+        vm.prank(registrant);
+        registry.withdraw(registrant);
+
+        vm.prank(registrant);
+        vm.expectRevert("Exit not initiated");
+        registry.withdraw(registrant);
+    }
+
+    function testMultipleExits() public {
+        vm.startPrank(registrant);
+        registry.register{value: 3 ether}();
+        registry.initiateExit(1 ether);
+
+        vm.roll(block.number + 1);
+
+        registry.initiateExit(2 ether);
+        vm.stopPrank();
+
+        PreconfirmationRegistry.Registrant memory info = registry
+            .getRegistrantInfo(registrant);
+        assertEq(info.amountExiting, 2 ether);
+        assertEq(info.exitInitiatedAt, block.number);
+    }
+
+    function testUpdateStatusNonExistentProposer() public {
+        address[] memory proposers = new address[](1);
+        proposers[0] = address(0);
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(address(0))),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
     }
 }

@@ -46,6 +46,7 @@ contract PreconfirmationRegistry {
 
     function register() external payable {
         require(registrants[msg.sender].enteredAt == 0, "Already registered");
+        require(msg.value > 0, "Insufficient registration amount");
         registrants[msg.sender] = Registrant({
             balance: msg.value,
             frozenBalance: 0,
@@ -59,9 +60,9 @@ contract PreconfirmationRegistry {
 
     function delegate(address[] calldata _proposers) external {
         require(registrants[msg.sender].enteredAt != 0, "Not registered");
-        registrants[msg.sender].delegatedProposers = _proposers;
         for (uint i = 0; i < _proposers.length; i++) {
             address proposer = _proposers[i];
+            registrants[msg.sender].delegatedProposers.push(proposer);
             proposers[proposer].delegatedBy.push(msg.sender);
         }
         emit Delegated(msg.sender, _proposers);
@@ -122,6 +123,7 @@ contract PreconfirmationRegistry {
             registrant.amountExiting <= registrant.balance,
             "Not enough funds to withdraw"
         );
+        registrant.balance -= registrant.amountExiting;
         payable(to).transfer(registrant.amountExiting);
         registrant.exitInitiatedAt = 0;
         registrant.amountExiting = 0;
