@@ -172,4 +172,42 @@ contract PreconfirmationRegistryTest is Test {
         assertEq(updatedRegistrant1.frozenBalance, 75 ether, "4");
         assertEq(updatedRegistrant2.frozenBalance, 75 ether, "5");
     }
+
+    // test all subfunctions together
+    function testApplyPenalty() public {
+        // setup
+        bytes memory penaltyConditions = type(MockPenaltyConditionsWithDataAndSignature).creationCode;
+
+        bytes32 messageHash = keccak256(abi.encode(100 ether));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(proposerPrivateKey, messageHash);
+        bytes memory dataSignature = abi.encodePacked(r, s, v);
+
+        bytes memory data = abi.encode(100 ether, dataSignature);
+
+
+        uint256 initialProposerCollateral = registry.getProposerInfo(proposer).effectiveCollateral;
+        uint256 initialRegistrant1Balance = registry.getRegistrantInfo(registrant1).balance;
+        uint256 initialRegistrant2Balance = registry.getRegistrantInfo(registrant2).balance;
+
+        // get signature of penaltyConditions bytecode
+        bytes32 penaltyConditionsHash = keccak256(penaltyConditions);
+        (uint8 penaltyConditionsV, bytes32 penaltyConditionsR, bytes32 penaltyConditionsS) = vm.sign(proposerPrivateKey, penaltyConditionsHash);
+        bytes memory penaltyConditionsSignature = abi.encodePacked(penaltyConditionsR, penaltyConditionsS, penaltyConditionsV);
+
+        // apply penalty
+        registry.applyPenalty(proposer, penaltyConditions, penaltyConditionsSignature, data);
+
+        // check updated balances
+        PreconfirmationRegistry.Proposer memory updatedProposer = registry.getProposerInfo(proposer);
+        PreconfirmationRegistry.Registrant memory updatedRegistrant1 = registry.getRegistrantInfo(registrant1);
+        PreconfirmationRegistry.Registrant memory updatedRegistrant2 = registry.getRegistrantInfo(registrant2);
+
+        assertEq(updatedProposer.effectiveCollateral, initialProposerCollateral - 100 ether, "1");
+        assertEq(updatedRegistrant1.balance, initialRegistrant1Balance - 50 ether, "2");
+        assertEq(updatedRegistrant2.balance, initialRegistrant2Balance - 50 ether, "3");
+
+        // no balance should be frozen
+        assertEq(updatedRegistrant1.frozenBalance, 0, "4");
+        assertEq(updatedRegistrant2.frozenBalance, 0, "5");
+    }
 }
