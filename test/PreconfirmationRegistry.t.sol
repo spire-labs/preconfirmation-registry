@@ -74,6 +74,7 @@ contract PreconfirmationRegistryTest is Test {
             proposer
         );
         assertEq(uint(status), uint(PreconfirmationRegistry.Status.PRECONFER));
+        assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
     }
 
     function testApplyPenalty() public {
@@ -84,30 +85,51 @@ contract PreconfirmationRegistryTest is Test {
     function testInitiateExit() public {
         vm.startPrank(registrant);
         registry.register{value: 2 ether}();
-        registry.initiateExit(1 ether);
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        registry.delegate(proposers);
+
+        vm.roll(block.number + 32);
+        registry.initiateExit(1.5 ether);
         vm.stopPrank();
 
         PreconfirmationRegistry.Registrant memory info = registry
             .getRegistrantInfo(registrant);
         assertEq(info.balance, 2 ether);
         assertEq(info.exitInitiatedAt, block.number);
-        assertEq(info.amountExiting, 1 ether);
+        assertEq(info.amountExiting, 1.5 ether);
+
+        PreconfirmationRegistry.Status status = registry.getProposerStatus(
+            proposer
+        );
+        assertEq(uint(status), uint(PreconfirmationRegistry.Status.EXITING));
+        assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
     }
 
     function testWithdraw() public {
         vm.startPrank(registrant);
         registry.register{value: 2 ether}();
-        registry.initiateExit(1 ether);
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        registry.delegate(proposers);
+
+        vm.roll(block.number + 32);
+        registry.initiateExit(1.5 ether);
+        vm.roll(block.number + 33);
+        uint256 balanceBefore = registrant.balance;
+        registry.withdraw(registrant);
         vm.stopPrank();
 
-        vm.roll(block.number + 33);
+        assertEq(registrant.balance - balanceBefore, 1.5 ether);
+        assertEq(registry.getRegistrantInfo(registrant).balance, 0.5 ether);
 
-        uint256 balanceBefore = registrant.balance;
-        vm.prank(registrant);
-        registry.withdraw(registrant);
-
-        assertEq(registrant.balance - balanceBefore, 1 ether);
-        assertEq(registry.getRegistrantInfo(registrant).balance, 1 ether);
+        PreconfirmationRegistry.Status status = registry.getProposerStatus(
+            proposer
+        );
+        assertEq(uint(status), uint(PreconfirmationRegistry.Status.INCLUDER));
+        assertEq(registry.getEffectiveCollateral(proposer), 0.5 ether);
     }
 
     function testMultipleDelegations() public {
@@ -241,9 +263,16 @@ contract PreconfirmationRegistryTest is Test {
 
         vm.prank(registrant);
         registry.initiateExit(1.5 ether);
-        vm.stopPrank();
 
-        vm.roll(block.number + 32);
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.EXITING)
+        );
+        assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
+
+        vm.roll(block.number + 33);
 
         vm.prank(registrant);
         registry.withdraw(registrant);
@@ -254,6 +283,7 @@ contract PreconfirmationRegistryTest is Test {
             uint(registry.getProposerStatus(proposer)),
             uint(PreconfirmationRegistry.Status.INCLUDER)
         );
+        assertEq(registry.getEffectiveCollateral(proposer), 0.5 ether);
     }
 
     function testWithdrawTwice() public {
