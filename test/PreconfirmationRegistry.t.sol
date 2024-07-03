@@ -12,8 +12,8 @@ contract PreconfirmationRegistryTest is Test {
 
     function setUp() public {
         registry = new PreconfirmationRegistry(MINIMUM_COLLATERAL);
-        registrant = address(0x1);
-        proposer = address(0x2);
+        registrant = vm.addr(1);
+        proposer = vm.addr(2);
         vm.deal(registrant, 10 ether);
     }
 
@@ -38,9 +38,14 @@ contract PreconfirmationRegistryTest is Test {
         registry.delegate(proposers);
         vm.stopPrank();
 
-        PreconfirmationRegistry.Registrant memory info = registry.getRegistrantInfo(registrant);
-        assertEq(info.delegatedProposers.length, 1);
-        assertEq(info.delegatedProposers[0], proposer);
+        PreconfirmationRegistry.Registrant memory registrantInfo = registry.getRegistrantInfo(registrant);
+        PreconfirmationRegistry.Proposer memory proposerInfo = registry.getProposerInfo(proposer);
+        assertEq(registrantInfo.delegatedProposers.length, 1);
+        assertEq(registrantInfo.delegatedProposers[0], proposer);
+        assertEq(proposerInfo.delegatedBy.length, 1);
+        assertEq(proposerInfo.delegatedBy[0], registrant);
+
+        // we do not test that the effective collateral is calculated correctly here, that is done in the testUpdateStatus test
     }
 
     function testUpdateStatus() public {
@@ -74,6 +79,7 @@ contract PreconfirmationRegistryTest is Test {
         PreconfirmationRegistry.Registrant memory info = registry.getRegistrantInfo(registrant);
         assertEq(info.balance, 2 ether);
         assertEq(info.exitInitiatedAt, block.number);
+        assertEq(info.amountExiting, 1 ether);
     }
 
     function testWithdraw() public {
@@ -86,7 +92,7 @@ contract PreconfirmationRegistryTest is Test {
 
         uint256 balanceBefore = registrant.balance;
         vm.prank(registrant);
-        registry.withdraw();
+        registry.withdraw(registrant);
 
         assertEq(registrant.balance - balanceBefore, 1 ether);
     }

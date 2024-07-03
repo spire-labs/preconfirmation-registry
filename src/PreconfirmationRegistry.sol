@@ -7,12 +7,14 @@ contract PreconfirmationRegistry {
         uint256 frozenBalance;
         uint256 enteredAt;
         uint256 exitInitiatedAt;
+        uint256 amountExiting;
         address[] delegatedProposers;
     }
 
     struct Proposer {
         Status status;
         uint256 effectiveCollateral;
+        address[] delegatedBy;
     }
 
     enum Status { INCLUDER, EXITING, PRECONFER }
@@ -45,6 +47,7 @@ contract PreconfirmationRegistry {
             frozenBalance: 0,
             enteredAt: block.number + 32,
             exitInitiatedAt: 0,
+            amountExiting: 0,
             delegatedProposers: new address[](0)
         });
         emit Registered(msg.sender, msg.value);
@@ -53,13 +56,26 @@ contract PreconfirmationRegistry {
     function delegate(address[] calldata _proposers) external {
         require(registrants[msg.sender].enteredAt != 0, "Not registered");
         registrants[msg.sender].delegatedProposers = _proposers;
+        for (uint i = 0; i < _proposers.length; i++) {
+            address proposer = _proposers[i];
+            proposers[proposer].delegatedBy.push(msg.sender);
+        }
         emit Delegated(msg.sender, _proposers);
     }
 
     function updateStatus(address[] calldata _proposers) external {
         for (uint i = 0; i < _proposers.length; i++) {
             address proposer = _proposers[i];
-            uint256 effectiveCollateral = getEffectiveCollateral(proposer);
+            // calculate effective collateral
+            uint256 effectiveCollateral = 0;
+            for (uint j = 0; j < proposers[proposer].delegatedBy.length; j++) {
+                address registrant = proposers[proposer].delegatedBy[j];
+                
+                if (registrants[registrant].enteredAt <= block.number) {
+                    effectiveCollateral += registrants[registrant].balance - registrants[registrant].frozenBalance;
+                }
+            }
+
             if (effectiveCollateral >= MINIMUM_COLLATERAL) {
                 proposers[proposer].status = Status.PRECONFER;
             } else {
@@ -80,18 +96,19 @@ contract PreconfirmationRegistry {
         require(registrant.enteredAt != 0, "Not registered");
         require(registrant.balance >= amount, "Insufficient balance");
         registrant.exitInitiatedAt = block.number;
+        registrant.amountExiting = amount;
         emit ExitInitiated(msg.sender, amount);
     }
 
-    function withdraw() external {
+    function withdraw(address to) external {
         Registrant storage registrant = registrants[msg.sender];
         require(registrant.exitInitiatedAt != 0, "Exit not initiated");
         require(block.number >= registrant.exitInitiatedAt + EXIT_COOLDOWN, "Cooldown period not over");
-        uint256 amount = registrant.balance - registrant.frozenBalance;
-        registrant.balance = registrant.frozenBalance;
+        require(registrant.amountExiting <= registrant.balance, "Not enough funds to withdraw");
+        payable(to).transfer(registrant.amountExiting);
         registrant.exitInitiatedAt = 0;
-        payable(msg.sender).transfer(amount);
-        emit Withdrawn(msg.sender, amount);
+        registrant.amountExiting = 0;
+        emit Withdrawn(msg.sender, registrant.amountExiting);
     }
 
     function getProposerStatus(address proposer) external view returns (Status) {
@@ -99,14 +116,7 @@ contract PreconfirmationRegistry {
     }
 
     function getEffectiveCollateral(address proposer) public view returns (uint256) {
-        uint256 totalCollateral = 0;
-        for (uint i = 0; i < registrants[proposer].delegatedProposers.length; i++) {
-            address registrant = registrants[proposer].delegatedProposers[i];
-            if (registrants[registrant].enteredAt <= block.number) {
-                totalCollateral += registrants[registrant].balance - registrants[registrant].frozenBalance;
-            }
-        }
-        return totalCollateral;
+        return proposers[proposer].effectiveCollateral;
     }
 
     function getRegistrantInfo(address registrant) external view returns (Registrant memory) {
