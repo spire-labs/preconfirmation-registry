@@ -96,4 +96,78 @@ contract PreconfirmationRegistryTest is Test {
 
         assertEq(registrant.balance - balanceBefore, 1 ether);
     }
+
+    function testMultipleDelegations() public {
+        address proposer2 = vm.addr(3);
+        vm.deal(registrant, 3 ether);
+        
+        vm.startPrank(registrant);
+        registry.register{value: 3 ether}();
+        
+        address[] memory proposers = new address[](2);
+        proposers[0] = proposer;
+        proposers[1] = proposer2;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        PreconfirmationRegistry.Registrant memory registrantInfo = registry.getRegistrantInfo(registrant);
+        PreconfirmationRegistry.Proposer memory proposerInfo1 = registry.getProposerInfo(proposer);
+        PreconfirmationRegistry.Proposer memory proposerInfo2 = registry.getProposerInfo(proposer2);
+        
+        assertEq(registrantInfo.delegatedProposers.length, 2);
+        assertEq(registrantInfo.delegatedProposers[0], proposer);
+        assertEq(registrantInfo.delegatedProposers[1], proposer2);
+        assertEq(proposerInfo1.delegatedBy.length, 1);
+        assertEq(proposerInfo1.delegatedBy[0], registrant);
+        assertEq(proposerInfo2.delegatedBy.length, 1);
+        assertEq(proposerInfo2.delegatedBy[0], registrant);
+    }
+
+    function testUpdateStatusMultipleProposers() public {
+        address proposer2 = vm.addr(3);
+        vm.deal(registrant, 3 ether);
+        
+        vm.startPrank(registrant);
+        registry.register{value: 3 ether}();
+        
+        address[] memory proposers = new address[](2);
+        proposers[0] = proposer;
+        proposers[1] = proposer2;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        vm.roll(block.number + 32);
+
+        registry.updateStatus(proposers);
+
+        assertEq(uint(registry.getProposerStatus(proposer)), uint(PreconfirmationRegistry.Status.PRECONFER));
+        assertEq(uint(registry.getProposerStatus(proposer2)), uint(PreconfirmationRegistry.Status.PRECONFER));
+        assertEq(registry.getEffectiveCollateral(proposer), 3 ether);
+        assertEq(registry.getEffectiveCollateral(proposer2), 3 ether);
+    }
+
+    function testWithdrawToDifferentAddress() public {
+        address withdrawAddress = vm.addr(3);
+        
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+        registry.initiateExit(1 ether);
+        vm.stopPrank();
+
+        vm.roll(block.number + 33);
+
+        uint256 balanceBefore = withdrawAddress.balance;
+        vm.prank(registrant);
+        registry.withdraw(withdrawAddress);
+
+        assertEq(withdrawAddress.balance - balanceBefore, 1 ether);
+    }
+
+    function testInitiateExitInsufficientBalance() public {
+        vm.startPrank(registrant);
+        registry.register{value: 1 ether}();
+        vm.expectRevert("Insufficient balance");
+        registry.initiateExit(2 ether);
+        vm.stopPrank();
+    }
 }
