@@ -1,5 +1,7 @@
 # Preconfirmation Registry
 
+# IMPORTANT: THE CONTRACTS IN THIS REPO ARE FOR THE ETHCC HELDER TESTNET AND NOT READY FOR PRODUCTION USE
+
 ## Overview
 
 The Preconfirmation Registry is a smart contract designed to manage the registration and collateral of proposers in a credibly neutral and permissionless manner. It allows proposers to register with ETH collateral, delegate to other proposers, and handles penalties for misbehavior. The registry also supports leader election based on the Ethereum lookahead.
