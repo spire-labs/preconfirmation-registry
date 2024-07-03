@@ -156,7 +156,7 @@ contract PreconfirmationRegistry {
         // deploy penalty conditions contract from penaltyConditions bytecode
         address penaltyConditionsContract = deployFromBytecode(penaltyConditions);
 
-        (bool success, bytes memory result) = penaltyConditionsContract.delegatecall(
+        (bool success, bytes memory result) = penaltyConditionsContract.call(
                 abi.encodeWithSignature(
                     "getPenalty(bytes,address)",
                     data,
