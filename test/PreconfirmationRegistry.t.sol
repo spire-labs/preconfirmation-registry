@@ -13,7 +13,11 @@ contract PreconfirmationRegistryTest is Test {
     uint256 constant EXIT_COOLDOWN = 32;
 
     function setUp() public {
-        registry = new PreconfirmationRegistry(MINIMUM_COLLATERAL, ACTIVATION_DELAY, EXIT_COOLDOWN);
+        registry = new PreconfirmationRegistry(
+            MINIMUM_COLLATERAL,
+            ACTIVATION_DELAY,
+            EXIT_COOLDOWN
+        );
         registrant = vm.addr(1);
         proposer = vm.addr(2);
         vm.deal(registrant, 10 ether);
@@ -329,5 +333,110 @@ contract PreconfirmationRegistryTest is Test {
             uint(registry.getProposerStatus(address(0))),
             uint(PreconfirmationRegistry.Status.INCLUDER)
         );
+    }
+
+    function testRetrieveInformation() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        PreconfirmationRegistry.Registrant memory registrantInfo = registry
+            .getRegistrantInfo(registrant);
+        PreconfirmationRegistry.Proposer memory proposerInfo = registry
+            .getProposerInfo(proposer);
+
+        assertEq(registrantInfo.balance, 2 ether);
+        assertEq(registrantInfo.enteredAt, block.number + ACTIVATION_DELAY);
+        assertEq(registrantInfo.delegatedProposers.length, 1);
+        assertEq(registrantInfo.delegatedProposers[0], proposer);
+
+        assertEq(proposerInfo.delegatedBy.length, 1);
+        assertEq(proposerInfo.delegatedBy[0], registrant);
+        assertEq(
+            uint(proposerInfo.status),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
+    }
+
+    function testActivationDelay() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        // Before activation delay
+        registry.updateStatus(proposers);
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
+
+        // After activation delay
+        vm.roll(block.number + ACTIVATION_DELAY);
+        registry.updateStatus(proposers);
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.PRECONFER)
+        );
+    }
+
+    function testDelegateBeforeActivationDelay() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        registry.updateStatus(proposers);
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
+        assertEq(registry.getEffectiveCollateral(proposer), 0);
+
+        vm.roll(block.number + ACTIVATION_DELAY - 1);
+        registry.updateStatus(proposers);
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
+        assertEq(registry.getEffectiveCollateral(proposer), 0);
+
+        vm.roll(block.number + 1);
+        registry.updateStatus(proposers);
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.PRECONFER)
+        );
+        assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
+    }
+
+    function testWithdrawBeforeExitCooldown() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+        registry.initiateExit(1 ether);
+
+        vm.roll(block.number + EXIT_COOLDOWN - 1);
+
+        vm.expectRevert("Cooldown period not over");
+        registry.withdraw(registrant);
+
+        vm.roll(block.number + 1);
+        registry.withdraw(registrant);
+        vm.stopPrank();
+
+        PreconfirmationRegistry.Registrant memory info = registry
+            .getRegistrantInfo(registrant);
+        assertEq(info.balance, 1 ether);
+        assertEq(info.amountExiting, 0);
     }
 }
