@@ -32,7 +32,8 @@ contract PreconfirmationRegistry {
     mapping(address => Registrant) public registrants;
     mapping(address => Proposer) public proposers;
     uint256 public immutable MINIMUM_COLLATERAL;
-    uint256 public constant EXIT_COOLDOWN = 32; // blocks
+    uint256 public immutable ACTIVATION_DELAY;
+    uint256 public immutable EXIT_COOLDOWN;
 
     event Registered(address indexed registrant, uint256 amount);
     event Delegated(address indexed registrant, address[] proposers);
@@ -40,8 +41,14 @@ contract PreconfirmationRegistry {
     event ExitInitiated(address indexed registrant, uint256 amount);
     event Withdrawn(address indexed registrant, uint256 amount);
 
-    constructor(uint256 _minimumCollateral) {
+    constructor(
+        uint256 _minimumCollateral,
+        uint256 _activationDelay,
+        uint256 _exitCooldown
+    ) {
         MINIMUM_COLLATERAL = _minimumCollateral;
+        ACTIVATION_DELAY = _activationDelay;
+        EXIT_COOLDOWN = _exitCooldown;
     }
 
     function register() external payable {
@@ -50,7 +57,7 @@ contract PreconfirmationRegistry {
         registrants[msg.sender] = Registrant({
             balance: msg.value,
             frozenBalance: 0,
-            enteredAt: block.number + 32,
+            enteredAt: block.number + ACTIVATION_DELAY,
             exitInitiatedAt: 0,
             amountExiting: 0,
             delegatedProposers: new address[](0)

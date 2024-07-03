@@ -9,9 +9,11 @@ contract PreconfirmationRegistryTest is Test {
     address public registrant;
     address public proposer;
     uint256 constant MINIMUM_COLLATERAL = 1 ether;
+    uint256 constant ACTIVATION_DELAY = 32;
+    uint256 constant EXIT_COOLDOWN = 32;
 
     function setUp() public {
-        registry = new PreconfirmationRegistry(MINIMUM_COLLATERAL);
+        registry = new PreconfirmationRegistry(MINIMUM_COLLATERAL, ACTIVATION_DELAY, EXIT_COOLDOWN);
         registrant = vm.addr(1);
         proposer = vm.addr(2);
         vm.deal(registrant, 10 ether);
