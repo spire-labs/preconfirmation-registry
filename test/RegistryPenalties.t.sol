@@ -6,19 +6,19 @@ import "../src/PreconfirmationRegistry.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract MockPenaltyConditions {
-    function getPenalty(bytes calldata data, address proposer) public pure returns (PreconfirmationRegistry.Penalty memory) {
+    function getPenalty(bytes calldata /* data */, address /* proposer */) public pure returns (PreconfirmationRegistry.Penalty memory) {
         return PreconfirmationRegistry.Penalty(1 ether, 0.5 ether, 100);
     }
 }
 
 contract MockHighPenaltyConditions {
-    function getPenalty(bytes calldata data, address proposer) public pure returns (PreconfirmationRegistry.Penalty memory) {
+    function getPenalty(bytes calldata /* data */, address /* proposer */) public pure returns (PreconfirmationRegistry.Penalty memory) {
         return PreconfirmationRegistry.Penalty(150 ether, 150 ether, 1000);
     }
 }
 
 contract MockPenaltyConditionsWithData {
-    function getPenalty(bytes calldata data, address proposer) public pure returns (PreconfirmationRegistry.Penalty memory) {
+    function getPenalty(bytes calldata data, address /* proposer */) public pure returns (PreconfirmationRegistry.Penalty memory) {
         uint256 amount = abi.decode(data, (uint256));
         return PreconfirmationRegistry.Penalty(amount, 0 ether, 0);
     }

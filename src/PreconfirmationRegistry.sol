@@ -201,11 +201,11 @@ contract PreconfirmationRegistry {
             Registrant storage registrant = registrants[registrantAddr];
 
             // slashing has priority over freezing and happens first, this could be changed in the future
-            uint256 _actualWeiSlashed = applySlashing(
+            /* uint256 _actualWeiSlashed = */ applySlashing(
                 registrant,
                 weiSlashedPerRegistrant
             );
-            uint256 _actualWeiFrozen = applyFreezing(
+            /* uint256 _actualWeiFrozen = */ applyFreezing(
                 registrant,
                 weiFrozenPerRegistrant
             );
