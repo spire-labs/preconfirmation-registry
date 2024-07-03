@@ -33,7 +33,7 @@ contract PreconfirmationRegistryTest is Test {
             .getRegistrantInfo(registrant);
         assertEq(info.balance, 2 ether);
         assertEq(info.frozenBalance, 0);
-        assertEq(info.enteredAt, block.number + 32);
+        assertEq(info.enteredAt, vm.getBlockNumber() + 32);
         assertEq(info.exitInitiatedAt, 0);
         assertEq(info.delegatedProposers.length, 0);
     }
@@ -136,7 +136,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.delegate(proposers);
         vm.stopPrank();
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
 
         registry.updateStatus(proposers);
 
@@ -160,7 +160,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.delegate(proposers);
         vm.stopPrank();
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
 
         registry.updateStatus(proposers);
 
@@ -185,7 +185,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.delegate(proposers);
         vm.stopPrank();
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
         registry.updateStatus(proposers);
 
         assertEq(
@@ -204,7 +204,7 @@ contract PreconfirmationRegistryTest is Test {
         );
         assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
 
         vm.prank(registrant);
         registry.withdraw(registrant);
@@ -239,14 +239,14 @@ contract PreconfirmationRegistryTest is Test {
         proposers[0] = proposer;
         registry.delegate(proposers);
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
         registry.initiateExit(1.5 ether);
         vm.stopPrank();
 
         PreconfirmationRegistry.Registrant memory info = registry
             .getRegistrantInfo(registrant);
         assertEq(info.balance, 2 ether);
-        assertEq(info.exitInitiatedAt, block.number);
+        assertEq(info.exitInitiatedAt, vm.getBlockNumber());
         assertEq(info.amountExiting, 1.5 ether);
 
         PreconfirmationRegistry.Status status = registry.getProposerStatus(
@@ -264,9 +264,9 @@ contract PreconfirmationRegistryTest is Test {
         proposers[0] = proposer;
         registry.delegate(proposers);
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
         registry.initiateExit(1.5 ether);
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
         uint256 balanceBefore = registrant.balance;
         registry.withdraw(registrant);
         vm.stopPrank();
@@ -289,7 +289,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.initiateExit(1 ether);
         vm.stopPrank();
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
 
         uint256 balanceBefore = withdrawAddress.balance;
         vm.prank(registrant);
@@ -312,7 +312,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.initiateExit(1 ether);
         vm.stopPrank();
 
-        vm.roll(block.number + 32);
+        vm.roll(vm.getBlockNumber() + 32);
 
         vm.prank(registrant);
         registry.withdraw(registrant);
@@ -327,7 +327,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.register{value: 3 ether}();
         registry.initiateExit(1 ether);
 
-        vm.roll(block.number + 1);
+        vm.roll(vm.getBlockNumber() + 1);
 
         registry.initiateExit(2 ether);
         vm.stopPrank();
@@ -335,7 +335,7 @@ contract PreconfirmationRegistryTest is Test {
         PreconfirmationRegistry.Registrant memory info = registry
             .getRegistrantInfo(registrant);
         assertEq(info.amountExiting, 2 ether);
-        assertEq(info.exitInitiatedAt, block.number);
+        assertEq(info.exitInitiatedAt, vm.getBlockNumber());
     }
 
     //////////// INFORMATION RETRIEVAL ////////////
@@ -355,7 +355,7 @@ contract PreconfirmationRegistryTest is Test {
             .getProposerInfo(proposer);
 
         assertEq(registrantInfo.balance, 2 ether);
-        assertEq(registrantInfo.enteredAt, block.number + ACTIVATION_DELAY);
+        assertEq(registrantInfo.enteredAt, vm.getBlockNumber() + ACTIVATION_DELAY);
         assertEq(registrantInfo.delegatedProposers.length, 1);
         assertEq(registrantInfo.delegatedProposers[0], proposer);
 
@@ -386,7 +386,7 @@ contract PreconfirmationRegistryTest is Test {
         );
 
         // After activation delay
-        vm.roll(block.number + ACTIVATION_DELAY);
+        vm.roll(vm.getBlockNumber() + ACTIVATION_DELAY);
         registry.updateStatus(proposers);
         assertEq(
             uint(registry.getProposerStatus(proposer)),
@@ -410,7 +410,7 @@ contract PreconfirmationRegistryTest is Test {
         );
         assertEq(registry.getEffectiveCollateral(proposer), 0);
 
-        vm.roll(block.number + ACTIVATION_DELAY - 1);
+        vm.roll(vm.getBlockNumber() + ACTIVATION_DELAY - 1);
         registry.updateStatus(proposers);
         assertEq(
             uint(registry.getProposerStatus(proposer)),
@@ -418,7 +418,7 @@ contract PreconfirmationRegistryTest is Test {
         );
         assertEq(registry.getEffectiveCollateral(proposer), 0);
 
-        vm.roll(block.number + 1);
+        vm.roll(vm.getBlockNumber() + 1);
         registry.updateStatus(proposers);
         assertEq(
             uint(registry.getProposerStatus(proposer)),
@@ -432,12 +432,12 @@ contract PreconfirmationRegistryTest is Test {
         registry.register{value: 2 ether}();
         registry.initiateExit(1 ether);
 
-        vm.roll(block.number + EXIT_COOLDOWN - 1);
+        vm.roll(vm.getBlockNumber() + EXIT_COOLDOWN - 1);
 
         vm.expectRevert("Cooldown period not over");
         registry.withdraw(registrant);
 
-        vm.roll(block.number + 1);
+        vm.roll(vm.getBlockNumber() + 1);
         registry.withdraw(registrant);
         vm.stopPrank();
 
@@ -453,4 +453,4 @@ contract PreconfirmationRegistryTest is Test {
         // This test is a placeholder and needs to be implemented
         // once the penalty conditions and signature verification are finalized
     }
-}
+        }
