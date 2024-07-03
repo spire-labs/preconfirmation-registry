@@ -68,25 +68,29 @@ contract PreconfirmationRegistry {
         emit Delegated(msg.sender, _proposers);
     }
 
-    function updateStatus(address[] calldata _proposers) external {
+    function updateProposerStatus(address proposer) internal {}
+
+    function updateStatus(address[] calldata _proposers) public {
         for (uint i = 0; i < _proposers.length; i++) {
-            address proposer = _proposers[i];
-            // calculate effective collateral
             uint256 effectiveCollateral = 0;
+            uint256 collateralExiting = 0;
+            address proposer = _proposers[i];
             for (uint j = 0; j < proposers[proposer].delegatedBy.length; j++) {
                 address registrant = proposers[proposer].delegatedBy[j];
-
                 if (registrants[registrant].enteredAt <= block.number) {
                     effectiveCollateral +=
                         registrants[registrant].balance -
                         registrants[registrant].frozenBalance;
+                    collateralExiting += registrants[registrant].amountExiting;
                 }
             }
 
-            if (effectiveCollateral >= MINIMUM_COLLATERAL) {
+            if (effectiveCollateral - collateralExiting >= MINIMUM_COLLATERAL) {
                 proposers[proposer].status = Status.PRECONFER;
-            } else {
+            } else if (effectiveCollateral < MINIMUM_COLLATERAL) {
                 proposers[proposer].status = Status.INCLUDER;
+            } else {
+                proposers[proposer].status = Status.EXITING;
             }
             proposers[proposer].effectiveCollateral = effectiveCollateral;
         }
@@ -109,6 +113,10 @@ contract PreconfirmationRegistry {
         require(registrant.balance >= amount, "Insufficient balance");
         registrant.exitInitiatedAt = block.number;
         registrant.amountExiting = amount;
+
+        // Update status of all proposers this registrant has delegated to
+        this.updateStatus(registrant.delegatedProposers);
+
         emit ExitInitiated(msg.sender, amount);
     }
 
@@ -123,11 +131,18 @@ contract PreconfirmationRegistry {
             registrant.amountExiting <= registrant.balance,
             "Not enough funds to withdraw"
         );
-        registrant.balance -= registrant.amountExiting;
-        payable(to).transfer(registrant.amountExiting);
+
+        uint256 amountToWithdraw = registrant.amountExiting;
+        registrant.balance -= amountToWithdraw;
         registrant.exitInitiatedAt = 0;
         registrant.amountExiting = 0;
-        emit Withdrawn(msg.sender, registrant.amountExiting);
+
+        payable(to).transfer(amountToWithdraw);
+
+        // Update status of all proposers this registrant has delegated to
+        this.updateStatus(registrant.delegatedProposers);
+
+        emit Withdrawn(msg.sender, amountToWithdraw);
     }
 
     function getProposerStatus(
