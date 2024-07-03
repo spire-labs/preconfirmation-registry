@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
 contract PreconfirmationRegistry {
+    using ECDSA for bytes32;
+
     struct Registrant {
         uint256 balance;
         uint256 frozenBalance;
@@ -107,9 +111,134 @@ contract PreconfirmationRegistry {
         bytes calldata penaltyConditionsSignature,
         bytes calldata data
     ) external {
-        // This function needs to be implemented
-        // It should verify the signature, execute the penalty conditions,
-        // and apply the resulting penalty
+        require(isRegisteredProposer(proposer), "Proposer not registered");
+        require(
+            verifySignature(
+                proposer,
+                penaltyConditions,
+                penaltyConditionsSignature
+            ),
+            "Invalid signature"
+        );
+
+        Penalty memory penalty = executePenaltyConditions(
+            penaltyConditions,
+            data,
+            proposer
+        );
+        if (isPenaltyEmpty(penalty)) {
+            return;
+        }
+
+        applyPenaltyToRegistrants(proposer, penalty);
+
+        emit PenaltyApplied(proposer, penalty);
+    }
+
+    function isRegisteredProposer(address proposer) public view returns (bool) {
+        return proposers[proposer].status != Status.INCLUDER;
+    }
+
+    function verifySignature(
+        address proposer,
+        bytes memory penaltyConditions,
+        bytes memory signature
+    ) public pure returns (bool) {
+        bytes32 messageHash = keccak256(penaltyConditions);
+        return messageHash.recover(signature) == proposer;
+    }
+
+    function executePenaltyConditions(
+        bytes memory penaltyConditions, 
+        bytes memory data,
+        address proposer
+    ) public returns (Penalty memory) {
+        // deploy penalty conditions contract from penaltyConditions bytecode
+        address penaltyConditionsContract = deployFromBytecode(penaltyConditions);
+
+        (bool success, bytes memory result) = penaltyConditionsContract.delegatecall(
+                abi.encodeWithSignature(
+                    "getPenalty(bytes,address)",
+                    data,
+                    proposer
+                )
+            );
+
+        require(success, "Penalty conditions execution failed");
+
+        return abi.decode(result, (Penalty));
+    }
+
+    function deployFromBytecode(bytes memory bytecode) public returns (address) {
+        address child;
+        assembly{
+            mstore(0x0, bytecode)
+            child := create(0,0xa0, calldatasize())
+        }
+        return child;
+   }
+
+    function isPenaltyEmpty(Penalty memory penalty) public pure returns (bool) {
+        return
+            penalty.weiSlashed == 0 &&
+            penalty.weiFrozen == 0 &&
+            penalty.blocksFrozen == 0;
+    }
+
+    function applyPenaltyToRegistrants(
+        address proposer,
+        Penalty memory penalty
+    ) public {
+        Proposer storage prop = proposers[proposer];
+        uint256 registrantCount = prop.delegatedBy.length;
+        require(registrantCount > 0, "No registrants for this proposer");
+
+        uint256 weiSlashedPerRegistrant = penalty.weiSlashed / registrantCount;
+        uint256 weiFrozenPerRegistrant = penalty.weiFrozen / registrantCount;
+
+        for (uint256 i = 0; i < registrantCount; i++) {
+            address registrantAddr = prop.delegatedBy[i];
+            Registrant storage registrant = registrants[registrantAddr];
+
+            // slashing has priority over freezing and happens first, this could be changed in the future
+            uint256 _actualWeiSlashed = applySlashing(
+                registrant,
+                weiSlashedPerRegistrant
+            );
+            uint256 _actualWeiFrozen = applyFreezing(
+                registrant,
+                weiFrozenPerRegistrant
+            );
+            
+            // Update status of all proposers this registrant has delegated to
+            this.updateStatus(registrant.delegatedProposers);
+        }
+    }
+
+    function applySlashing(
+        Registrant storage registrant,
+        uint256 weiToSlash
+    ) internal returns (uint256) {
+        uint256 availableToSlash = registrant.balance -
+            registrant.frozenBalance;
+        uint256 actualWeiSlashed = weiToSlash > availableToSlash
+            ? availableToSlash
+            : weiToSlash;
+        registrant.balance -= actualWeiSlashed;
+        return actualWeiSlashed;
+    }
+
+    function applyFreezing(
+        Registrant storage registrant,
+        uint256 weiToFreeze
+    ) internal returns (uint256) {
+        uint256 availableToFreeze = registrant.balance -
+            registrant.frozenBalance;
+        uint256 actualWeiFrozen = weiToFreeze > availableToFreeze
+            ? availableToFreeze
+            : weiToFreeze;
+        registrant.frozenBalance += actualWeiFrozen;
+        return actualWeiFrozen;
     }
 
     function initiateExit(uint256 amount) external {
