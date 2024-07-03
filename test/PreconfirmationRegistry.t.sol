@@ -23,6 +23,8 @@ contract PreconfirmationRegistryTest is Test {
         vm.deal(registrant, 10 ether);
     }
 
+    //////////// REGISTRATION ////////////
+
     function testRegister() public {
         vm.prank(registrant);
         registry.register{value: 2 ether}();
@@ -41,6 +43,8 @@ contract PreconfirmationRegistryTest is Test {
         vm.expectRevert("Insufficient registration amount");
         registry.register{value: 0}();
     }
+
+    //////////// DELEGATION ////////////
 
     function testDelegate() public {
         vm.startPrank(registrant);
@@ -63,6 +67,66 @@ contract PreconfirmationRegistryTest is Test {
         // we do not test that the effective collateral is calculated correctly here, that is done in the testUpdateStatus test
     }
 
+    function testMultipleDelegations() public {
+        address proposer2 = vm.addr(3);
+        vm.deal(registrant, 3 ether);
+
+        vm.startPrank(registrant);
+        registry.register{value: 3 ether}();
+
+        address[] memory proposers = new address[](2);
+        proposers[0] = proposer;
+        proposers[1] = proposer2;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        PreconfirmationRegistry.Registrant memory registrantInfo = registry
+            .getRegistrantInfo(registrant);
+        PreconfirmationRegistry.Proposer memory proposerInfo1 = registry
+            .getProposerInfo(proposer);
+        PreconfirmationRegistry.Proposer memory proposerInfo2 = registry
+            .getProposerInfo(proposer2);
+
+        assertEq(registrantInfo.delegatedProposers.length, 2);
+        assertEq(registrantInfo.delegatedProposers[0], proposer);
+        assertEq(registrantInfo.delegatedProposers[1], proposer2);
+        assertEq(proposerInfo1.delegatedBy.length, 1);
+        assertEq(proposerInfo1.delegatedBy[0], registrant);
+        assertEq(proposerInfo2.delegatedBy.length, 1);
+        assertEq(proposerInfo2.delegatedBy[0], registrant);
+    }
+
+    function testRedelegate() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+
+        address[] memory proposers1 = new address[](1);
+        proposers1[0] = proposer;
+        registry.delegate(proposers1);
+
+        address proposer2 = vm.addr(3);
+        address[] memory proposers2 = new address[](1);
+        proposers2[0] = proposer2;
+        registry.delegate(proposers2);
+        vm.stopPrank();
+
+        PreconfirmationRegistry.Registrant memory registrantInfo = registry
+            .getRegistrantInfo(registrant);
+        PreconfirmationRegistry.Proposer memory proposerInfo1 = registry
+            .getProposerInfo(proposer);
+        PreconfirmationRegistry.Proposer memory proposerInfo2 = registry
+            .getProposerInfo(proposer2);
+
+        assertEq(registrantInfo.delegatedProposers.length, 2);
+        assertEq(registrantInfo.delegatedProposers[0], proposer);
+        assertEq(registrantInfo.delegatedProposers[1], proposer2);
+        assertEq(proposerInfo1.delegatedBy.length, 1);
+        assertEq(proposerInfo2.delegatedBy.length, 1);
+        assertEq(proposerInfo2.delegatedBy[0], registrant);
+    }
+
+    //////////// STATUS UPDATE ////////////
+
     function testUpdateStatus() public {
         vm.startPrank(registrant);
         registry.register{value: 2 ether}();
@@ -83,10 +147,89 @@ contract PreconfirmationRegistryTest is Test {
         assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
     }
 
-    function testApplyPenalty() public {
-        // This test is a placeholder and needs to be implemented
-        // once the penalty conditions and signature verification are finalized
+    function testUpdateStatusMultipleProposers() public {
+        address proposer2 = vm.addr(3);
+        vm.deal(registrant, 3 ether);
+
+        vm.startPrank(registrant);
+        registry.register{value: 3 ether}();
+
+        address[] memory proposers = new address[](2);
+        proposers[0] = proposer;
+        proposers[1] = proposer2;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        vm.roll(block.number + 32);
+
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.PRECONFER)
+        );
+        assertEq(
+            uint(registry.getProposerStatus(proposer2)),
+            uint(PreconfirmationRegistry.Status.PRECONFER)
+        );
+        assertEq(registry.getEffectiveCollateral(proposer), 3 ether);
+        assertEq(registry.getEffectiveCollateral(proposer2), 3 ether);
     }
+
+    function testUpdateStatusBelowMinimum() public {
+        vm.startPrank(registrant);
+        registry.register{value: 2 ether}();
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        registry.delegate(proposers);
+        vm.stopPrank();
+
+        vm.roll(block.number + 32);
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.PRECONFER)
+        );
+
+        vm.prank(registrant);
+        registry.initiateExit(1.5 ether);
+
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.EXITING)
+        );
+        assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
+
+        vm.roll(block.number + 32);
+
+        vm.prank(registrant);
+        registry.withdraw(registrant);
+
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(proposer)),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
+        assertEq(registry.getEffectiveCollateral(proposer), 0.5 ether);
+    }
+
+    function testUpdateStatusNonExistentProposer() public {
+        address[] memory proposers = new address[](1);
+        proposers[0] = address(0);
+        registry.updateStatus(proposers);
+
+        assertEq(
+            uint(registry.getProposerStatus(address(0))),
+            uint(PreconfirmationRegistry.Status.INCLUDER)
+        );
+    }
+
+    //////////// EXIT AND WITHDRAWAL ////////////
 
     function testInitiateExit() public {
         vm.startPrank(registrant);
@@ -138,64 +281,6 @@ contract PreconfirmationRegistryTest is Test {
         assertEq(registry.getEffectiveCollateral(proposer), 0.5 ether);
     }
 
-    function testMultipleDelegations() public {
-        address proposer2 = vm.addr(3);
-        vm.deal(registrant, 3 ether);
-
-        vm.startPrank(registrant);
-        registry.register{value: 3 ether}();
-
-        address[] memory proposers = new address[](2);
-        proposers[0] = proposer;
-        proposers[1] = proposer2;
-        registry.delegate(proposers);
-        vm.stopPrank();
-
-        PreconfirmationRegistry.Registrant memory registrantInfo = registry
-            .getRegistrantInfo(registrant);
-        PreconfirmationRegistry.Proposer memory proposerInfo1 = registry
-            .getProposerInfo(proposer);
-        PreconfirmationRegistry.Proposer memory proposerInfo2 = registry
-            .getProposerInfo(proposer2);
-
-        assertEq(registrantInfo.delegatedProposers.length, 2);
-        assertEq(registrantInfo.delegatedProposers[0], proposer);
-        assertEq(registrantInfo.delegatedProposers[1], proposer2);
-        assertEq(proposerInfo1.delegatedBy.length, 1);
-        assertEq(proposerInfo1.delegatedBy[0], registrant);
-        assertEq(proposerInfo2.delegatedBy.length, 1);
-        assertEq(proposerInfo2.delegatedBy[0], registrant);
-    }
-
-    function testUpdateStatusMultipleProposers() public {
-        address proposer2 = vm.addr(3);
-        vm.deal(registrant, 3 ether);
-
-        vm.startPrank(registrant);
-        registry.register{value: 3 ether}();
-
-        address[] memory proposers = new address[](2);
-        proposers[0] = proposer;
-        proposers[1] = proposer2;
-        registry.delegate(proposers);
-        vm.stopPrank();
-
-        vm.roll(block.number + 32);
-
-        registry.updateStatus(proposers);
-
-        assertEq(
-            uint(registry.getProposerStatus(proposer)),
-            uint(PreconfirmationRegistry.Status.PRECONFER)
-        );
-        assertEq(
-            uint(registry.getProposerStatus(proposer2)),
-            uint(PreconfirmationRegistry.Status.PRECONFER)
-        );
-        assertEq(registry.getEffectiveCollateral(proposer), 3 ether);
-        assertEq(registry.getEffectiveCollateral(proposer2), 3 ether);
-    }
-
     function testWithdrawToDifferentAddress() public {
         address withdrawAddress = vm.addr(3);
 
@@ -219,77 +304,6 @@ contract PreconfirmationRegistryTest is Test {
         vm.expectRevert("Insufficient balance");
         registry.initiateExit(2 ether);
         vm.stopPrank();
-    }
-
-    function testRedelegate() public {
-        vm.startPrank(registrant);
-        registry.register{value: 2 ether}();
-
-        address[] memory proposers1 = new address[](1);
-        proposers1[0] = proposer;
-        registry.delegate(proposers1);
-
-        address proposer2 = vm.addr(3);
-        address[] memory proposers2 = new address[](1);
-        proposers2[0] = proposer2;
-        registry.delegate(proposers2);
-        vm.stopPrank();
-
-        PreconfirmationRegistry.Registrant memory registrantInfo = registry
-            .getRegistrantInfo(registrant);
-        PreconfirmationRegistry.Proposer memory proposerInfo1 = registry
-            .getProposerInfo(proposer);
-        PreconfirmationRegistry.Proposer memory proposerInfo2 = registry
-            .getProposerInfo(proposer2);
-
-        assertEq(registrantInfo.delegatedProposers.length, 2);
-        assertEq(registrantInfo.delegatedProposers[0], proposer);
-        assertEq(registrantInfo.delegatedProposers[1], proposer2);
-        assertEq(proposerInfo1.delegatedBy.length, 1);
-        assertEq(proposerInfo2.delegatedBy.length, 1);
-        assertEq(proposerInfo2.delegatedBy[0], registrant);
-    }
-
-    function testUpdateStatusBelowMinimum() public {
-        vm.startPrank(registrant);
-        registry.register{value: 2 ether}();
-
-        address[] memory proposers = new address[](1);
-        proposers[0] = proposer;
-        registry.delegate(proposers);
-        vm.stopPrank();
-
-        vm.roll(block.number + 32);
-        registry.updateStatus(proposers);
-
-        assertEq(
-            uint(registry.getProposerStatus(proposer)),
-            uint(PreconfirmationRegistry.Status.PRECONFER)
-        );
-
-        vm.prank(registrant);
-        registry.initiateExit(1.5 ether);
-
-        registry.updateStatus(proposers);
-
-        assertEq(
-            uint(registry.getProposerStatus(proposer)),
-            uint(PreconfirmationRegistry.Status.EXITING)
-        );
-        assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
-
-        vm.roll(block.number + 32);
-
-        vm.prank(registrant);
-        registry.withdraw(registrant);
-
-        registry.updateStatus(proposers);
-
-        assertEq(
-            uint(registry.getProposerStatus(proposer)),
-            uint(PreconfirmationRegistry.Status.INCLUDER)
-        );
-        assertEq(registry.getEffectiveCollateral(proposer), 0.5 ether);
     }
 
     function testWithdrawTwice() public {
@@ -324,16 +338,7 @@ contract PreconfirmationRegistryTest is Test {
         assertEq(info.exitInitiatedAt, block.number);
     }
 
-    function testUpdateStatusNonExistentProposer() public {
-        address[] memory proposers = new address[](1);
-        proposers[0] = address(0);
-        registry.updateStatus(proposers);
-
-        assertEq(
-            uint(registry.getProposerStatus(address(0))),
-            uint(PreconfirmationRegistry.Status.INCLUDER)
-        );
-    }
+    //////////// INFORMATION RETRIEVAL ////////////
 
     function testRetrieveInformation() public {
         vm.startPrank(registrant);
@@ -361,6 +366,8 @@ contract PreconfirmationRegistryTest is Test {
             uint(PreconfirmationRegistry.Status.INCLUDER)
         );
     }
+
+    //////////// TIMING AND DELAYS ////////////
 
     function testActivationDelay() public {
         vm.startPrank(registrant);
@@ -438,5 +445,12 @@ contract PreconfirmationRegistryTest is Test {
             .getRegistrantInfo(registrant);
         assertEq(info.balance, 1 ether);
         assertEq(info.amountExiting, 0);
+    }
+
+    //////////// PENALTY ////////////
+
+    function testApplyPenalty() public {
+        // This test is a placeholder and needs to be implemented
+        // once the penalty conditions and signature verification are finalized
     }
 }
