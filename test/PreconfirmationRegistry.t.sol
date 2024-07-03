@@ -21,12 +21,12 @@ contract PreconfirmationRegistryTest is Test {
         vm.prank(registrant);
         registry.register{value: 2 ether}();
 
-        (uint256 balance, uint256 frozenBalance, uint256 enteredAt, uint256 exitInitiatedAt, address[] memory delegatedProposers) = registry.getRegistrantInfo(registrant);
-        assertEq(balance, 2 ether);
-        assertEq(frozenBalance, 0);
-        assertEq(enteredAt, block.number + 32);
-        assertEq(exitInitiatedAt, 0);
-        assertEq(delegatedProposers.length, 0);
+        PreconfirmationRegistry.Registrant memory info = registry.getRegistrantInfo(registrant);
+        assertEq(info.balance, 2 ether);
+        assertEq(info.frozenBalance, 0);
+        assertEq(info.enteredAt, block.number + 32);
+        assertEq(info.exitInitiatedAt, 0);
+        assertEq(info.delegatedProposers.length, 0);
     }
 
     function testDelegate() public {
@@ -38,9 +38,9 @@ contract PreconfirmationRegistryTest is Test {
         registry.delegate(proposers);
         vm.stopPrank();
 
-        (, , , , address[] memory delegatedProposers) = registry.getRegistrantInfo(registrant);
-        assertEq(delegatedProposers.length, 1);
-        assertEq(delegatedProposers[0], proposer);
+        PreconfirmationRegistry.Registrant memory info = registry.getRegistrantInfo(registrant);
+        assertEq(info.delegatedProposers.length, 1);
+        assertEq(info.delegatedProposers[0], proposer);
     }
 
     function testUpdateStatus() public {
@@ -71,9 +71,9 @@ contract PreconfirmationRegistryTest is Test {
         registry.initiateExit(1 ether);
         vm.stopPrank();
 
-        (uint256 balance, , , uint256 exitInitiatedAt, ) = registry.getRegistrantInfo(registrant);
-        assertEq(balance, 2 ether);
-        assertEq(exitInitiatedAt, block.number);
+        PreconfirmationRegistry.Registrant memory info = registry.getRegistrantInfo(registrant);
+        assertEq(info.balance, 2 ether);
+        assertEq(info.exitInitiatedAt, block.number);
     }
 
     function testWithdraw() public {
