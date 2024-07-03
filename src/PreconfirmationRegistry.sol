@@ -75,8 +75,6 @@ contract PreconfirmationRegistry {
         emit Delegated(msg.sender, _proposers);
     }
 
-    function updateProposerStatus(address proposer) internal {}
-
     function updateStatus(address[] calldata _proposers) public {
         for (uint i = 0; i < _proposers.length; i++) {
             uint256 effectiveCollateral = 0;
