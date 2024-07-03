@@ -1,12 +1,12 @@
-# Writing Penalty Conditions for you Proposer Commitments
-Penalty conditions (or slashing conditions) represent the conditions under which a proposer should be penalized (slashing or frozen). These can also be used to slash another form of collateral, such as restaked ETH in another contract.
+# Writing Penalty Conditions for your Proposer Commitments
+Penalty conditions (or slashing conditions) represent the conditions under which a proposer should be penalized (slashed or frozen). These can also be used to slash another form of collateral, such as restaked ETH in another contract.
 
 ## Overview
 Penalty conditions are EVM bytecode that, when executed, eventually return a `Penalty` struct. The `Penalty` struct contains three fields:
 
 - `weiSlashed`: the amount of wei that should be slashed from the proposer's balance
 - `weiFrozen`: the amount of wei that should be frozen from the proposer's balance
-- `blocksFrozen`: the number of blocks that should be frozen from the proposer's balance
+- `blocksFrozen`: the number of blocks for which the proposer's balance should be frozen
 
 Note that slashing takes priority over freezing, meaning that if a proposer has no balance after being slashed, they will not be frozen.
 
@@ -33,24 +33,24 @@ Here is the flow:
 1. The proposer calls `PreconfirmationRegistry.applyPenalty` with the `penaltyConditions` bytecode and the proposer's signature of the `penaltyConditions` bytecode.
 2. The `PreconfirmationRegistry` contract verifies the signature and deploys the `penaltyConditions` bytecode.
 3. The address where the `penaltyConditions` bytecode was deployed is called with the `data` and the proposer's address, at the function `getPenalty`.
-4. The `getPenalty` function returns a `Penalty` struct or reverts.
-5. The `PreconfirmationRegistry` contract applies the `Penalty` struct to the registrants that have delegated to the proposer, if the `Penalty` struct is not empty. If the `getPenalty` function reverts, the proposer is not slashed or frozen and `applyPenalty` is reverted.
+4. The `getPenalty` function returns a `Penalty` struct or causes the transaction to revert.
+5. The `PreconfirmationRegistry` contract applies the `Penalty` struct to the registrants who have delegated to the proposer, if the `Penalty` struct is not empty. If the `getPenalty` function reverts, the proposer is not slashed or frozen, and the `applyPenalty` function is reverted.
 6. The `PreconfirmationRegistry` contract updates the proposer's status.
 7. The `PreconfirmationRegistry` contract emits a `PenaltyApplied` event.
 
 ### Data?
-The special `data` parameter is used to pass additional data to the `getPenalty` function. This can include any situational information about the preconfirmation commitment that is relevant to determining the appropriate penalty. For example, the `data` parameter could include a signature from the proposer, a block number, a L2 transaction hash, etc. 
+The special `data` parameter is used to pass additional data to the `getPenalty` function. This can include any situational information about the preconfirmation commitment that is relevant to determining the appropriate penalty. For example, the `data` parameter could include a signature from the proposer, a block number, an L2 transaction hash, etc. 
 
-This design choice is made so that proposer only need to sign off on the `penaltyConditions` bytecode once for all preconfirmation commitments they might make. The leader election module can also determine if a proposer has signed off on a `penaltyConditions` bytecode without the proposer having to make a commitment, which could be used to do leader election.
+This design choice is made so that a proposer only needs to sign off on the `penaltyConditions` bytecode once for all preconfirmation commitments they might make. The leader election module can also determine if a proposer has signed off on a `penaltyConditions` bytecode without the proposer having to make a commitment, which could be used to do leader election.
 
 ## Examples
-See `test/RegistryPenalties.t.sol` (the contracts at the top) for examples of some super simple penalty conditions. 
+See `test/RegistryPenalties.t.sol` (the contracts at the top) for examples of simple penalty conditions. 
 
 ## Writing and Testing your own Penalty Conditions
-In this quick tutorial we will write penalty conditions that freezes a proposer's balance for 100 blocks if they signed a promise about a blockhash and blocknumber that was not correct (this is just a toy example, you can use any situation you want).
+In this quick tutorial, we will write penalty conditions that freeze a proposer's balance for 100 blocks if they signed a promise about a blockhash and blocknumber that was not correct (this is just a toy example, you can use any situation you want).
 
 ### Determining the `data`
-Listing what we will need to determine if slashing should occur:
+We need to list the requirements to determine if slashing should occur:
 - The block number for which the commitment was made
 - The blockhash for which the commitment was made
 - A signature from the proposer (let's say an ECDSA signature of `keccak256(abi.encode(blockhash, blocknumber))`) that we can verify.
@@ -65,7 +65,7 @@ struct BlockHashCommitmentData {
 ```
 
 ### Writing the `getPenalty` function
-The `getPenalty` function is where the actual slashing logic is implemented. It takes in the `data` and the proposer's address, and returns a `Penalty` struct. The `Penalty` struct is defined as follows:
+The `getPenalty` function is where the actual slashing logic is implemented. It takes in the `data` and the proposer's address and returns a `Penalty` struct. The `Penalty` struct is defined as follows:
 
 ```solidity
 struct Penalty {
@@ -75,7 +75,7 @@ struct Penalty {
 }
 ```
 
-In this case, we will slash the proposer's balance by `1 ether` and freeze their balance for `100` blocks if blockhash and blocknumber in the commitment is incorrect.
+In this case, we will freeze the proposer's balance by `1 ether` for `100` blocks if the blockhash and blocknumber in the commitment are incorrect. 
 
 ```solidity
 function getPenalty(
@@ -93,14 +93,14 @@ function getPenalty(
     require(signer == proposer, "Invalid signature");
     
     if (commitmentData.blockHash != blockhash(commitmentData.blockNumber)) {
-        return Penalty(1 ether, 0 ether, 100);
+        return Penalty(0 ether, 1 ether, 100);
     }
     return Penalty(0 ether, 0 ether, 0);
 }
 ```
 
 ### Putting it all together
-Let's wrap it all up with a contract that imports necessary libraries!
+Let's wrap it all up with a contract that imports the necessary libraries!
 
 ```solidity
 // SPDX-License-Identifier: Unlicensed
@@ -133,6 +133,6 @@ contract BlockHashCommitment {
 ```
 
 ### Testing the penalty conditions
-See exampels in `test/RegistryPenalties.t.sol` (the contracts at the top) for examples of testing penalty conditions.
+See examples in `test/RegistryPenalties.t.sol` (the contracts at the top) for examples of testing penalty conditions.
 
 *I'm currently working on a foundry script that will compile and test your penalty conditions for you. Stay tuned!*
