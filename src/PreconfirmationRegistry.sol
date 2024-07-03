@@ -17,7 +17,11 @@ contract PreconfirmationRegistry {
         address[] delegatedBy;
     }
 
-    enum Status { INCLUDER, EXITING, PRECONFER }
+    enum Status {
+        INCLUDER,
+        EXITING,
+        PRECONFER
+    }
 
     struct Penalty {
         uint256 weiSlashed;
@@ -70,9 +74,11 @@ contract PreconfirmationRegistry {
             uint256 effectiveCollateral = 0;
             for (uint j = 0; j < proposers[proposer].delegatedBy.length; j++) {
                 address registrant = proposers[proposer].delegatedBy[j];
-                
+
                 if (registrants[registrant].enteredAt <= block.number) {
-                    effectiveCollateral += registrants[registrant].balance - registrants[registrant].frozenBalance;
+                    effectiveCollateral +=
+                        registrants[registrant].balance -
+                        registrants[registrant].frozenBalance;
                 }
             }
 
@@ -85,7 +91,12 @@ contract PreconfirmationRegistry {
         }
     }
 
-    function applyPenalty(address proposer, bytes calldata penaltyConditions, bytes calldata penaltyConditionsSignature, bytes calldata data) external {
+    function applyPenalty(
+        address proposer,
+        bytes calldata penaltyConditions,
+        bytes calldata penaltyConditionsSignature,
+        bytes calldata data
+    ) external {
         // This function needs to be implemented
         // It should verify the signature, execute the penalty conditions,
         // and apply the resulting penalty
@@ -103,27 +114,41 @@ contract PreconfirmationRegistry {
     function withdraw(address to) external {
         Registrant storage registrant = registrants[msg.sender];
         require(registrant.exitInitiatedAt != 0, "Exit not initiated");
-        require(block.number >= registrant.exitInitiatedAt + EXIT_COOLDOWN, "Cooldown period not over");
-        require(registrant.amountExiting <= registrant.balance, "Not enough funds to withdraw");
+        require(
+            block.number >= registrant.exitInitiatedAt + EXIT_COOLDOWN,
+            "Cooldown period not over"
+        );
+        require(
+            registrant.amountExiting <= registrant.balance,
+            "Not enough funds to withdraw"
+        );
         payable(to).transfer(registrant.amountExiting);
         registrant.exitInitiatedAt = 0;
         registrant.amountExiting = 0;
         emit Withdrawn(msg.sender, registrant.amountExiting);
     }
 
-    function getProposerStatus(address proposer) external view returns (Status) {
+    function getProposerStatus(
+        address proposer
+    ) external view returns (Status) {
         return proposers[proposer].status;
     }
 
-    function getEffectiveCollateral(address proposer) public view returns (uint256) {
+    function getEffectiveCollateral(
+        address proposer
+    ) public view returns (uint256) {
         return proposers[proposer].effectiveCollateral;
     }
 
-    function getRegistrantInfo(address registrant) external view returns (Registrant memory) {
+    function getRegistrantInfo(
+        address registrant
+    ) external view returns (Registrant memory) {
         return registrants[registrant];
     }
 
-    function getProposerInfo(address proposer) external view returns (Proposer memory) {
+    function getProposerInfo(
+        address proposer
+    ) external view returns (Proposer memory) {
         return proposers[proposer];
     }
 }
