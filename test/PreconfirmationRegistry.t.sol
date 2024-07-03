@@ -119,7 +119,7 @@ contract PreconfirmationRegistryTest is Test {
 
         vm.roll(block.number + 32);
         registry.initiateExit(1.5 ether);
-        vm.roll(block.number + 33);
+        vm.roll(block.number + 32);
         uint256 balanceBefore = registrant.balance;
         registry.withdraw(registrant);
         vm.stopPrank();
@@ -200,7 +200,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.initiateExit(1 ether);
         vm.stopPrank();
 
-        vm.roll(block.number + 33);
+        vm.roll(block.number + 32);
 
         uint256 balanceBefore = withdrawAddress.balance;
         vm.prank(registrant);
@@ -274,7 +274,7 @@ contract PreconfirmationRegistryTest is Test {
         );
         assertEq(registry.getEffectiveCollateral(proposer), 2 ether);
 
-        vm.roll(block.number + 33);
+        vm.roll(block.number + 32);
 
         vm.prank(registrant);
         registry.withdraw(registrant);
@@ -294,7 +294,7 @@ contract PreconfirmationRegistryTest is Test {
         registry.initiateExit(1 ether);
         vm.stopPrank();
 
-        vm.roll(block.number + 33);
+        vm.roll(block.number + 32);
 
         vm.prank(registrant);
         registry.withdraw(registrant);
