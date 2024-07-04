@@ -82,10 +82,10 @@ function getPenalty(
     bytes calldata data,
     address proposer
 ) external returns (Penalty memory) {
+    BlockHashCommitmentData memory commitmentData = abi.decode(data, (BlockHashCommitmentData));
+
     // special check to make sure the block number is not too far in the past for blockhash() to be correct
     require(block.number - commitmentData.blockNumber < 256, "Block number too far in the past");    
-
-    BlockHashCommitmentData memory commitmentData = abi.decode(data, (BlockHashCommitmentData));
 
     // verify signature
     bytes32 messageHash = keccak256(abi.encode(commitmentData.blockHash, commitmentData.blockNumber));
@@ -135,4 +135,84 @@ contract BlockHashCommitment {
 ### Testing the penalty conditions
 See examples in `test/RegistryPenalties.t.sol` (the contracts at the top) for examples of testing penalty conditions.
 
-*I'm currently working on a foundry script that will compile and test your penalty conditions for you. Stay tuned!*
+**See the foundry script in `script/PenaltyConditions.s.sol` for a working tool to test your penalty conditions on given data.**
+### Usage
+*install foundry with foundryup, clone this repo and navigate to the repo directory*
+
+Create a `.env` file in the root directory of the repo with the following contents:
+```
+PROPOSER_ADDRESS=0x...
+PENALTY_CONDITIONS_PATH="src/examples/BlockHashCommitment.sol:BlockHashCommitment"
+PENALTY_CONDITIONS_DATA=0x...
+```
+
+`PROPOSER_ADDRESS` is the address of the proposer that will be used to call the `getPenalty` function.
+`PENALTY_CONDITIONS_PATH` is the path to the penalty conditions contract, see forge docs for more info.
+`PENALTY_CONDITIONS_DATA` is the data that will be passed to the `getPenalty` function. 
+
+Then run the script:
+
+```bash
+forge script script/PenaltyConditions.s.sol:PenaltyConditionsScript
+```
+
+You can also see the forge script docs to do things like fork mainnet state and test against it.
+
+For the example `.env` given above you can generate the `data` with the following with a block hash and number from etherscan:
+```solidity
+pragma solidity ^0.8.19;
+
+import "forge-std/Test.sol";
+
+contract GenerateMockData is Test {
+    address public proposer;
+    uint256 public proposerPrivateKey;
+
+    function setUp() public {
+        (proposer, proposerPrivateKey) = makeAddrAndKey("proposer"); (
+    }
+
+    function testGenerateData() public {
+        console.log(proposer);
+
+        bytes32 messageHash = keccak256(abi.encode(/* blockHash */, /* blockNumber */));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(proposerPrivateKey, messageHash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+    
+        BlockHashCommitmentData memory data = BlockHashCommitmentData({
+            blockNumber: /* blockNumber */,
+            blockHash: /* blockHash */,
+            signature: sig
+        });
+
+        console.logBytes(abi.encode(data));
+    }
+}
+```
+
+Fill out the above and copy the `0x...` printed by running (assuming your file is at `test/GenerateMockData.t.sol`) into your `.env` file:
+```bash
+forge test -vv --via-ir test/GenerateMockData.t.sol
+```
+
+Then run the script, forking mainnet so block numbers work:
+```bash
+forge script --fork-url https://eth.llamarpc.com --fork-block-number /* the block number you chose above + 1 */ -vv script/PenaltyConditions.s.sol:PenaltyConditionsScript
+```
+
+Mess around with the `data` and the `signature` until you get the desired penalty!
+
+Here is an example `.env` with a penalty!
+```bash
+PROPOSER_ADDRESS="0x6bEf539e8319dACba4C2DaD055006E79682C0f32"
+PENALTY_CONDITIONS_PATH="src/examples/BlockHashCommitment.sol:BlockHashCommitment"
+PENALTY_CONDITIONS_DATA=0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000134ae33e3b392260379e4bb58e605f9c21284abe63b1bd130d8058ed1503e18c1bcb80d00000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000041855bd7c264c16057c472a1aa6854534558a3cc9cd78d8db16a3625c5dde69b545ca8f43db7bb6f6a7c6d83fa3d1835c92b225cb7d0a70860c3a1159e85a3546e1b00000000000000000000000000000000000000000000000000000000000000
+```
+
+Run with:
+```bash
+forge script --fork-url https://eth.llamarpc.com --fork-block-number 20229684 -vv script/PenaltyConditions.s.sol:PenaltyConditionsScript
+```
+
+## Literally Anything Else
+Message me on telegram: https://t.me/mteam888
