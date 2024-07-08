@@ -3,6 +3,10 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
+/**
+ * @title PreconfirmationRegistry
+ * @notice A contract for managing registrants and proposers in a preconfirmation system
+ */
 contract PreconfirmationRegistry {
     using ECDSA for bytes32;
 
@@ -45,6 +49,12 @@ contract PreconfirmationRegistry {
     event ExitInitiated(address indexed registrant, uint256 amount);
     event Withdrawn(address indexed registrant, uint256 amount);
 
+    /**
+     * @notice Constructor to initialize the PreconfirmationRegistry
+     * @param _minimumCollateral The minimum amount of collateral required for registration
+     * @param _activationDelay The number of blocks to wait before activation
+     * @param _exitCooldown The number of blocks to wait before exiting
+     */
     constructor(
         uint256 _minimumCollateral,
         uint256 _activationDelay,
@@ -55,6 +65,11 @@ contract PreconfirmationRegistry {
         EXIT_COOLDOWN = _exitCooldown;
     }
 
+    /**
+     * @notice Register a new registrant
+     * @dev Requires a non-zero value to be sent with the transaction
+     * @dev Emits a Registered event
+     */
     function register() external payable {
         require(registrants[msg.sender].enteredAt == 0, "Already registered");
         require(msg.value > 0, "Insufficient registration amount");
@@ -69,6 +84,12 @@ contract PreconfirmationRegistry {
         emit Registered(msg.sender, msg.value);
     }
 
+    /**
+     * @notice Delegate to one or more proposers
+     * @param _proposers An array of proposer addresses to delegate to
+     * @dev Requires the sender to be registered
+     * @dev Emits a Delegated event
+     */
     function delegate(address[] calldata _proposers) external {
         require(registrants[msg.sender].enteredAt != 0, "Not registered");
         for (uint i = 0; i < _proposers.length; i++) {
@@ -79,6 +100,11 @@ contract PreconfirmationRegistry {
         emit Delegated(msg.sender, _proposers);
     }
 
+    /**
+     * @notice Update the status of one or more proposers
+     * @param _proposers An array of proposer addresses to update
+     * @dev Updates the effective collateral and status of each proposer
+     */
     function updateStatus(address[] calldata _proposers) public {
         for (uint i = 0; i < _proposers.length; i++) {
             uint256 effectiveCollateral = 0;
@@ -105,6 +131,15 @@ contract PreconfirmationRegistry {
         }
     }
 
+    /**
+     * @notice Apply a penalty to a proposer
+     * @param proposer The address of the proposer to penalize
+     * @param penaltyConditions The bytecode of the penalty conditions contract
+     * @param penaltyConditionsSignature The signature of the penalty conditions
+     * @param data Additional data for penalty calculation
+     * @dev Requires the proposer to be registered and the signature to be valid
+     * @dev Emits a PenaltyApplied event if a non-empty penalty is applied
+     */
     function applyPenalty(
         address proposer,
         bytes calldata penaltyConditions,
@@ -135,10 +170,22 @@ contract PreconfirmationRegistry {
         emit PenaltyApplied(proposer, penalty);
     }
 
+    /**
+     * @notice Check if an address is a registered proposer
+     * @param proposer The address to check
+     * @return bool True if the address is a registered proposer, false otherwise
+     */
     function isRegisteredProposer(address proposer) public view returns (bool) {
         return proposers[proposer].status != Status.INCLUDER;
     }
 
+    /**
+     * @notice Verify the signature of penalty conditions
+     * @param proposer The address of the proposer
+     * @param penaltyConditions The penalty conditions bytecode
+     * @param signature The signature to verify
+     * @return bool True if the signature is valid, false otherwise
+     */
     function verifySignature(
         address proposer,
         bytes memory penaltyConditions,
@@ -148,12 +195,19 @@ contract PreconfirmationRegistry {
         return messageHash.recover(signature) == proposer;
     }
 
+    /**
+     * @notice Execute penalty conditions and return the resulting penalty
+     * @param penaltyConditions The bytecode of the penalty conditions contract
+     * @param data Additional data for penalty calculation
+     * @param proposer The address of the proposer
+     * @return Penalty The calculated penalty
+     * @dev Deploys the penalty conditions contract and calls its getPenalty function
+     */
     function executePenaltyConditions(
         bytes memory penaltyConditions, 
         bytes memory data,
         address proposer
     ) public returns (Penalty memory) {
-        // deploy penalty conditions contract from penaltyConditions bytecode
         address penaltyConditionsContract = deployFromBytecode(penaltyConditions);
 
         (bool success, bytes memory result) = penaltyConditionsContract.call(
@@ -169,6 +223,12 @@ contract PreconfirmationRegistry {
         return abi.decode(result, (Penalty));
     }
 
+    /**
+     * @notice Deploy a contract from bytecode
+     * @param bytecode The bytecode of the contract to deploy
+     * @return address The address of the deployed contract
+     * @dev Uses inline assembly to deploy the contract
+     */
     function deployFromBytecode(bytes memory bytecode) public returns (address) {
         address child;
         assembly{
@@ -178,6 +238,11 @@ contract PreconfirmationRegistry {
         return child;
    }
 
+    /**
+     * @notice Check if a penalty is empty (all values are zero)
+     * @param penalty The penalty to check
+     * @return bool True if the penalty is empty, false otherwise
+     */
     function isPenaltyEmpty(Penalty memory penalty) public pure returns (bool) {
         return
             penalty.weiSlashed == 0 &&
@@ -185,6 +250,13 @@ contract PreconfirmationRegistry {
             penalty.blocksFrozen == 0;
     }
 
+    /**
+     * @notice Apply a penalty to all registrants delegating to a proposer
+     * @param proposer The address of the proposer
+     * @param penalty The penalty to apply
+     * @dev Updates the balances and frozen balances of affected registrants
+     * @dev Updates the status of all proposers the affected registrants have delegated to
+     */
     function applyPenaltyToRegistrants(
         address proposer,
         Penalty memory penalty
@@ -200,21 +272,20 @@ contract PreconfirmationRegistry {
             address registrantAddr = prop.delegatedBy[i];
             Registrant storage registrant = registrants[registrantAddr];
 
-            // slashing has priority over freezing and happens first, this could be changed in the future
-            /* uint256 _actualWeiSlashed = */ applySlashing(
-                registrant,
-                weiSlashedPerRegistrant
-            );
-            /* uint256 _actualWeiFrozen = */ applyFreezing(
-                registrant,
-                weiFrozenPerRegistrant
-            );
+            applySlashing(registrant, weiSlashedPerRegistrant);
+            applyFreezing(registrant, weiFrozenPerRegistrant);
             
-            // Update status of all proposers this registrant has delegated to
             this.updateStatus(registrant.delegatedProposers);
         }
     }
 
+    /**
+     * @notice Apply slashing to a registrant's balance
+     * @param registrant The registrant to slash
+     * @param weiToSlash The amount of wei to slash
+     * @return uint256 The actual amount of wei slashed
+     * @dev Internal function, called by applyPenaltyToRegistrants
+     */
     function applySlashing(
         Registrant storage registrant,
         uint256 weiToSlash
@@ -228,6 +299,13 @@ contract PreconfirmationRegistry {
         return actualWeiSlashed;
     }
 
+    /**
+     * @notice Apply freezing to a registrant's balance
+     * @param registrant The registrant to freeze
+     * @param weiToFreeze The amount of wei to freeze
+     * @return uint256 The actual amount of wei frozen
+     * @dev Internal function, called by applyPenaltyToRegistrants
+     */
     function applyFreezing(
         Registrant storage registrant,
         uint256 weiToFreeze
@@ -241,6 +319,12 @@ contract PreconfirmationRegistry {
         return actualWeiFrozen;
     }
 
+    /**
+     * @notice Initiate the exit process for a registrant
+     * @param amount The amount of wei to exit
+     * @dev Requires the sender to be registered and have sufficient balance
+     * @dev Emits an ExitInitiated event
+     */
     function initiateExit(uint256 amount) external {
         Registrant storage registrant = registrants[msg.sender];
         require(registrant.enteredAt != 0, "Not registered");
@@ -248,12 +332,17 @@ contract PreconfirmationRegistry {
         registrant.exitInitiatedAt = block.number;
         registrant.amountExiting = amount;
 
-        // Update status of all proposers this registrant has delegated to
         this.updateStatus(registrant.delegatedProposers);
 
         emit ExitInitiated(msg.sender, amount);
     }
 
+    /**
+     * @notice Withdraw funds after the exit cooldown period
+     * @param to The address to send the withdrawn funds to
+     * @dev Requires the exit process to be initiated and the cooldown period to be over
+     * @dev Emits a Withdrawn event
+     */
     function withdraw(address to) external {
         Registrant storage registrant = registrants[msg.sender];
         require(registrant.exitInitiatedAt != 0, "Exit not initiated");
@@ -273,30 +362,49 @@ contract PreconfirmationRegistry {
 
         payable(to).transfer(amountToWithdraw);
 
-        // Update status of all proposers this registrant has delegated to
         this.updateStatus(registrant.delegatedProposers);
 
         emit Withdrawn(msg.sender, amountToWithdraw);
     }
 
+    /**
+     * @notice Get the status of a proposer
+     * @param proposer The address of the proposer
+     * @return Status The current status of the proposer
+     */
     function getProposerStatus(
         address proposer
     ) external view returns (Status) {
         return proposers[proposer].status;
     }
 
+    /**
+     * @notice Get the effective collateral of a proposer
+     * @param proposer The address of the proposer
+     * @return uint256 The effective collateral of the proposer
+     */
     function getEffectiveCollateral(
         address proposer
     ) public view returns (uint256) {
         return proposers[proposer].effectiveCollateral;
     }
 
+    /**
+     * @notice Get the information of a registrant
+     * @param registrant The address of the registrant
+     * @return Registrant The registrant's information
+     */
     function getRegistrantInfo(
         address registrant
     ) external view returns (Registrant memory) {
         return registrants[registrant];
     }
 
+    /**
+     * @notice Get the information of a proposer
+     * @param proposer The address of the proposer
+     * @return Proposer The proposer's information
+     */
     function getProposerInfo(
         address proposer
     ) external view returns (Proposer memory) {
