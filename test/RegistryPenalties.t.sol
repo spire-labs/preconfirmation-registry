@@ -178,16 +178,31 @@ contract PreconfirmationRegistryTest is Test {
         // setup
         bytes memory penaltyConditions = type(MockPenaltyConditionsWithDataAndSignature).creationCode;
 
-        bytes32 messageHash = keccak256(abi.encode(100 ether));
+        bytes32 messageHash = keccak256(abi.encode(200 ether));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(proposerPrivateKey, messageHash);
         bytes memory dataSignature = abi.encodePacked(r, s, v);
 
-        bytes memory data = abi.encode(100 ether, dataSignature);
+        bytes memory data = abi.encode(200 ether, dataSignature);
 
+        // Add new registrant which holds larger collateral
+        address registrant3 = makeAddr("registrant3");
+        vm.deal(registrant3, 300 ether);
+        vm.prank(registrant3);
+        registry.register{value: 300 ether}();
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = proposer;
+        vm.prank(registrant3);
+        registry.delegate(proposers);
+
+        vm.roll(block.number + 32);
+
+        registry.updateStatus(proposers);
 
         uint256 initialProposerCollateral = registry.getProposerInfo(proposer).effectiveCollateral;
         uint256 initialRegistrant1Balance = registry.getRegistrantInfo(registrant1).balance;
         uint256 initialRegistrant2Balance = registry.getRegistrantInfo(registrant2).balance;
+        uint256 initialRegistrant3Balance = registry.getRegistrantInfo(registrant3).balance;
 
         // get signature of penaltyConditions bytecode
         bytes32 penaltyConditionsHash = keccak256(penaltyConditions);
@@ -201,13 +216,16 @@ contract PreconfirmationRegistryTest is Test {
         PreconfirmationRegistry.Proposer memory updatedProposer = registry.getProposerInfo(proposer);
         PreconfirmationRegistry.Registrant memory updatedRegistrant1 = registry.getRegistrantInfo(registrant1);
         PreconfirmationRegistry.Registrant memory updatedRegistrant2 = registry.getRegistrantInfo(registrant2);
+        PreconfirmationRegistry.Registrant memory updatedRegistrant3 = registry.getRegistrantInfo(registrant3);
 
-        assertEq(updatedProposer.effectiveCollateral, initialProposerCollateral - 100 ether, "1");
+        assertEq(updatedProposer.effectiveCollateral, initialProposerCollateral - 200 ether, "1");
         assertEq(updatedRegistrant1.balance, initialRegistrant1Balance - 50 ether, "2");
         assertEq(updatedRegistrant2.balance, initialRegistrant2Balance - 50 ether, "3");
+        assertEq(updatedRegistrant3.balance, initialRegistrant3Balance - 100 ether, "4");
 
         // no balance should be frozen
-        assertEq(updatedRegistrant1.frozenBalance, 0, "4");
-        assertEq(updatedRegistrant2.frozenBalance, 0, "5");
+        assertEq(updatedRegistrant1.frozenBalance, 0, "5");
+        assertEq(updatedRegistrant2.frozenBalance, 0, "6");
+        assertEq(updatedRegistrant3.frozenBalance, 0, "7");
     }
 }

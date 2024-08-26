@@ -42,6 +42,7 @@ contract PreconfirmationRegistry {
     uint256 public immutable MINIMUM_COLLATERAL;
     uint256 public immutable ACTIVATION_DELAY;
     uint256 public immutable EXIT_COOLDOWN;
+    uint256 totalBalance;
 
     event Registered(address indexed registrant, uint256 amount);
     event Delegated(address indexed registrant, address[] proposers);
@@ -81,6 +82,7 @@ contract PreconfirmationRegistry {
             amountExiting: 0,
             delegatedProposers: new address[](0)
         });
+        totalBalance += msg.value;
         emit Registered(msg.sender, msg.value);
     }
 
@@ -265,18 +267,20 @@ contract PreconfirmationRegistry {
         uint256 registrantCount = prop.delegatedBy.length;
         require(registrantCount > 0, "No registrants for this proposer");
 
-        uint256 weiSlashedPerRegistrant = penalty.weiSlashed / registrantCount;
-        uint256 weiFrozenPerRegistrant = penalty.weiFrozen / registrantCount;
-
         for (uint256 i = 0; i < registrantCount; i++) {
             address registrantAddr = prop.delegatedBy[i];
             Registrant storage registrant = registrants[registrantAddr];
+
+            uint256 weiSlashedPerRegistrant = penalty.weiSlashed * registrant.balance / totalBalance;
+            uint256 weiFrozenPerRegistrant = penalty.weiFrozen * registrant.balance / totalBalance;
 
             applySlashing(registrant, weiSlashedPerRegistrant);
             applyFreezing(registrant, weiFrozenPerRegistrant);
             
             this.updateStatus(registrant.delegatedProposers);
         }
+
+        totalBalance -= penalty.weiSlashed + penalty.weiFrozen;
     }
 
     /**
@@ -331,6 +335,7 @@ contract PreconfirmationRegistry {
         require(registrant.balance >= amount, "Insufficient balance");
         registrant.exitInitiatedAt = block.number;
         registrant.amountExiting = amount;
+        totalBalance -= amount;
 
         this.updateStatus(registrant.delegatedProposers);
 
