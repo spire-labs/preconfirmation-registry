@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  * @notice A contract for managing registrants and proposers in a preconfirmation system
  */
 contract PreconfirmationRegistry {
-    using ECDSA for bytes32;
+    using ECDSA for bytes32;    
 
     struct Registrant {
         uint256 balance;
@@ -268,12 +268,18 @@ contract PreconfirmationRegistry {
         uint256 weiSlashedPerRegistrant = penalty.weiSlashed / registrantCount;
         uint256 weiFrozenPerRegistrant = penalty.weiFrozen / registrantCount;
 
+        uint256 totalWeiSlashed = 0;
+        uint256 totalWeiFrozen = 0;
+
         for (uint256 i = 0; i < registrantCount; i++) {
             address registrantAddr = prop.delegatedBy[i];
             Registrant storage registrant = registrants[registrantAddr];
 
-            applySlashing(registrant, weiSlashedPerRegistrant);
-            applyFreezing(registrant, weiFrozenPerRegistrant);
+            uint256 actualWeiSlashed = applySlashing(registrant, weiSlashedPerRegistrant);
+            uint256 actualWeiFrozen = applyFreezing(registrant, weiFrozenPerRegistrant);
+            
+            totalWeiSlashed += actualWeiSlashed;
+            totalWeiFrozen += actualWeiFrozen;
             
             this.updateStatus(registrant.delegatedProposers);
         }
